@@ -5,6 +5,7 @@ import base64
 import time
 import string
 import random
+import os
 
 
 def print_usage_instructions():
@@ -159,8 +160,14 @@ if __name__ == "__main__":
     stream_id = sys.argv[2]
     message_endpoint = sys.argv[3]
 
+    # Allow OCI config file path to be overriden by an environment variable
+    if "OCI_CONFIG" in os.environ:
+        oci_config = os.getenv["OCI_CONFIG"]
+    else:
+        oci_config = "~/.oci/config"
+
     # Pass OCI CLI config file
-    config = oci.config.from_file("~/.oci/config", "DEFAULT")
+    config = oci.config.from_file(oci_config, "DEFAULT")
 
     # Create an OCI client
     client = oci.streaming.StreamClient(
@@ -176,14 +183,23 @@ if __name__ == "__main__":
     # Decide which mode to run in
     if sys.argv[1] == "consumer":
 
-        # The consumer group to join
-        group_name = "tutorial"
+        # The consumer group to join. Can be overriden by an environment
+        # variable
+        if "OSS_GROUP_NAME" in os.environ:
+            group_name = os.getenv["OSS_GROUP_NAME"]
+        else:
+            group_name = "tutorial"
 
-        # Generate a random 8 character string to use as this consumer's
-        # instance ID
-        instance_name = "".join(
-            random.choices(string.ascii_uppercase + string.digits, k=8)
-        )
+        # Instance name is either automatically generated or set by environment
+        # variable
+        if "OSS_INSTANCE_NAME" in os.environ:
+            instance_name = os.getenv["OSS_INSTANCE_NAME"]
+        else:
+            # Generate a random 8 character string to use as this consumer's
+            # instance ID
+            instance_name = "".join(
+                random.choices(string.ascii_uppercase + string.digits, k=8)
+            )
 
         run_consumer(client, stream_id, group_name, instance_name)
 
