@@ -3,6 +3,8 @@ import sys
 import logging
 import base64
 import time
+import string
+import random
 
 
 def print_usage_instructions():
@@ -15,29 +17,35 @@ def print_usage_instructions():
     print(usage)
 
 
-def get_cursor_by_partition(client, stream_id, partition):
-    """
-    Creates a new cursor object for consuming messages from a given stream and
-    partition. We use the "TYPE_LATEST" cursor type to consume messages from
-    the point that the cursor was created.
-    """
-    logging.info("Creating a cursor for partition {}".format(partition))
+def get_cursor_by_group(client, stream_id, group_name, instance_name):
 
-    cursor_details = oci.streaming.models.CreateCursorDetails(
-        partition=partition,
-        type=oci.streaming.models.CreateCursorDetails.TYPE_LATEST)
+    logging.info("Creating a cursor for group {}, instance {}".format(
+            group_name,
+            instance_name
+        )
+    )
 
-    response = client.create_cursor(stream_id, cursor_details)
+    # We use TYPE_LATEST to only consume messages from the moment the cursor is
+    # created.
+    cursor_details = oci.streaming.models.CreateGroupCursorDetails(
+        group_name=group_name,
+        instance_name=instance_name,
+        type=oci.streaming.models.CreateGroupCursorDetails.TYPE_LATEST,
+        commit_on_get=True,
+        timeout_in_ms=1000
+    )
 
-    return response.data.value
+    return client.create_group_cursor(stream_id, cursor_details).data.value
 
 
 def consumer_loop(client, stream_id, initial_cursor):
 
-    # The cursor position to start with
+    # The cursor to start with contains the offset to start with
     cursor = initial_cursor
 
     while True:
+
+        logging.info("Getting messages...")
 
         # Sleep for a second, so we don't get rate-limited by the OCI API
         time.sleep(1)
@@ -63,7 +71,8 @@ def consumer_loop(client, stream_id, initial_cursor):
                 )
             )
 
-        # Get the next cursor for passing to the next iteration of the loop
+        # Get the next cursor for passing to the next iteration of the loop,
+        # with an updated offset
         cursor = get_response.headers["opc-next-cursor"]
 
 
@@ -128,13 +137,15 @@ def run_producer(client, stream_id):
     producer_loop(client, stream_id)
 
 
-def run_consumer(client, stream_id):
+def run_consumer(client, stream_id, group_name, instance_name):
     """
-    Gets a new cursor object then starts a consumer loop
+    Gets a new cursor object for our consumer group then starts a consumer loop
     """
-    logging.info("Starting a consumer...")
+    logging.info("Starting a consumer with instance ID: {}"
+                 .format(instance_name))
 
-    cursor = get_cursor_by_partition(client, stream_id, partition="0")
+    cursor = get_cursor_by_group(client, stream_id, group_name, instance_name)
+
     consumer_loop(client, stream_id, initial_cursor=cursor)
 
 
@@ -164,7 +175,18 @@ if __name__ == "__main__":
 
     # Decide which mode to run in
     if sys.argv[1] == "consumer":
-        run_consumer(client, stream_id)
+
+        # The consumer group to join
+        group_name = "tutorial"
+
+        # Generate a random 8 character string to use as this consumer's
+        # instance ID
+        instance_name = "".join(
+            random.choices(string.ascii_uppercase + string.digits, k=8)
+        )
+
+        run_consumer(client, stream_id, group_name, instance_name)
+
     elif sys.argv[1] == "producer":
         run_producer(client, stream_id)
     else:
